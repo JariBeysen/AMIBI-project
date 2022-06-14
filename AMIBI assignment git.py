@@ -30,6 +30,7 @@ results_dir = os.path.join(script_dir, 'run_im/')
 
 start_time = time.monotonic()
 callbacks = True
+
 class V_autoencoder(tf.keras.Model):
     
     def __init__(self,lat_size,in_out_dim,label_dim,layers,activation='gelu',kernel_initializer='he_normal',):
