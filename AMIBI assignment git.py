@@ -29,10 +29,10 @@ script_dir = os.path.dirname(__file__)
 results_dir = os.path.join(script_dir, 'run_im/')
 
 start_time = time.monotonic()
-callbacks = False
+callbacks = True
 class V_autoencoder(tf.keras.Model):
     
-    def __init__(self,lat_size,in_out_dim,label_dim,layers,activation='relu',kernel_initializer='he_normal',):
+    def __init__(self,lat_size,in_out_dim,label_dim,layers,activation='gelu',kernel_initializer='he_normal',):
         
         super().__init__()
         self.num_hidden_layers = layers
@@ -42,19 +42,21 @@ class V_autoencoder(tf.keras.Model):
         self.lat_size = lat_size
         self.latent_mean = tf.keras.layers.Dense(lat_size)
         self.latent_sigma = tf.keras.layers.Dense(lat_size)
+        activation = self.act_func
+        scaler=0.005
         
-        self.e_hidden = [tf.keras.layers.Dense(int(self.in_out_dim*.1-(self.in_out_dim*.1-self.lat_size)/(self.num_hidden_layers+1)*(k+1)),
+        self.e_hidden = [tf.keras.layers.Dense(int(self.in_out_dim*scaler-(self.in_out_dim*scaler-self.lat_size)/(self.num_hidden_layers+1)*(k+1)),
                              activation=activation,
                              kernel_initializer=kernel_initializer,use_bias=False)
                            for k in range(self.num_hidden_layers)]
 
-        self.d_hidden = [tf.keras.layers.Dense(int(self.lat_size+(self.in_out_dim*.1-lat_size)/(self.num_hidden_layers+1)*(k+1)),
+        self.d_hidden = [tf.keras.layers.Dense(int(self.lat_size+(self.in_out_dim*scaler-lat_size)/(self.num_hidden_layers+1)*(k+1)),
                              activation=activation,
                              kernel_initializer=kernel_initializer,use_bias=False)
                            for k in range(self.num_hidden_layers)]
         
         self.i_hidden = [tf.keras.layers.Dense(self.lat_size,
-                             activation=activation,
+                             activation='relu',
                              kernel_initializer=kernel_initializer,use_bias=False)
                            for k in range(1)]
         
@@ -64,14 +66,15 @@ class V_autoencoder(tf.keras.Model):
         
         
         
-        
+    def act_func(self,x):
+        return tf.math.erf(x)
                            
     def encoder(self,X):
         
         Z = X
         for i in range(self.num_hidden_layers):
             Z = self.e_hidden[i](Z)
-            Z = tf.keras.layers.Dropout(0.05)(Z)
+            Z = tf.keras.layers.AlphaDropout(0.01)(Z)
 
         out_mean = self.latent_mean(Z)
         out_sigma = self.latent_sigma(Z)
@@ -81,7 +84,7 @@ class V_autoencoder(tf.keras.Model):
         Z = X
         for i in range(self.num_hidden_layers):
             Z = self.d_hidden[i](Z)
-            Z = tf.keras.layers.Dropout(0.05)(Z)
+            Z = tf.keras.layers.AlphaDropout(0.05)(Z)
             
         out = self.out(Z)
 
@@ -132,7 +135,7 @@ class VAE_Solver():
         
         z_mean,z_sigma = self.model.encoder(x)
         
-        kl_loss = -0.1*tf.reduce_mean(1 + z_sigma - tf.square(z_mean) - tf.exp(z_sigma))
+        kl_loss = -0.001*tf.reduce_mean(1 + z_sigma - tf.square(z_mean) - tf.exp(z_sigma))
         
         sampl = self.model.sampling([z_mean,z_sigma])
         
@@ -198,7 +201,9 @@ class VAE_Solver():
             fig.savefig(results_dir+"latent space"+str(self.iter))
             
             plt.close(fig)  
-        
+        def lr_red(i, N):
+            optimizer.learning_rate.assign(tf.math.abs(tf.random.normal((),lr*(1-i/N*.9),1/5*lr*(1-i/N*.9))))
+            
         def train_step():
 
             rand_seed = np.random.randint(0,10000)
@@ -233,7 +238,7 @@ class VAE_Solver():
         for i in range(N):
 
             loss,mse_loss,kl_loss,ce,train_acc = train_step()
-            
+            lr_red(i,N)
             # if train_acc==1:
             #     break
 
@@ -308,6 +313,46 @@ class VAE_Solver():
             sampl = self.model.sampling([avg_enc,std_enc])
             
             gen_dna = self.model.decoder(sampl)
+            
+            gen_dnas.append(gen_dna.numpy()[0])
+            
+            gen_labels.append(label)
+            
+        return np.array(gen_labels),np.array(gen_dnas)
+    
+    def generate_dna(self,label,dna,n):
+        
+        means = []
+        sigmas = []
+        for x in dna:
+            mean,sigma = self.model.encoder(x)
+            
+            means.append(mean)
+            sigmas.append(sigma)
+        
+        max_enc = tf.reduce_max(means,axis=0)
+        
+        min_enc = tf.reduce_min(means,axis=0)
+        
+        max_enc = tfp.stats.percentile(means,90,axis=0)
+        
+        min_enc = tfp.stats.percentile(means,10,axis=0)
+        
+        gen_dnas = []
+        
+        gen_labels = []
+        
+        for i in range(n):
+            
+            sample = []
+            
+            for x,y in zip(min_enc,max_enc):
+                
+                sample.append(tf.random.uniform((1,1),x,y))
+                
+            sample = tf.concat(sample, axis=1)
+            
+            gen_dna = self.model.decoder(sample)
             
             gen_dnas.append(gen_dna.numpy()[0])
             
@@ -445,11 +490,11 @@ def VAE(data,test_data):
     
     optimizer = tf.keras.optimizers.Nadam()
     
-    lr = 2e-6
+    lr = 2e-4
     
     solv = VAE_Solver(model,[tf_dna,tf_labels])
     
-    solv.train(optimizer, lr,50,30)
+    solv.train(optimizer, lr,30,10)
         
     
     test_ac = solv.eval(tf_test_dnas,tf_test_labels)
@@ -480,19 +525,19 @@ def VAE(data,test_data):
     
     
     
-    latent_space,latent_labels = solv.latent_space(tf_gen_dnas,tf_gen_labels)
-    pca = PCA(2)
-    pca.fit(latent_space)
-    latent_space = pca.transform(latent_space)
+    # latent_space,latent_labels = solv.latent_space(tf_gen_dnas,tf_gen_labels)
+    # pca = PCA(2)
+    # pca.fit(latent_space)
+    # latent_space = pca.transform(latent_space)
     
-    for ind,l in enumerate(latent_space):
+    # for ind,l in enumerate(latent_space):
         
-        lab = list(latent_labels[ind]).index(max(list(latent_labels[ind])))
+    #     lab = list(latent_labels[ind]).index(max(list(latent_labels[ind])))
         
-        if lab == 0:
-            plt.scatter(l[0],l[1],color = 'blue')
-        if lab == 1:
-            plt.scatter(l[0],l[1],color = 'red')
+    #     if lab == 0:
+    #         plt.scatter(l[0],l[1],color = 'blue')
+    #     if lab == 1:
+    #         plt.scatter(l[0],l[1],color = 'red')
             
     fn = p_fn(Tum_len/train_len,1-Tum_len/train_len,test_ac_t,test_ac_n)
             
@@ -528,7 +573,6 @@ def stat(n):
         X_test.append(dna[test])
         Y_test.append(labels[test])
         
-    print(len(X_train))
 
     vals = []
     for ind in range(n):
@@ -538,8 +582,44 @@ def stat(n):
 
     return np.mean(vals,axis=0),np.std(vals,axis=0)
 
+def single():
+    
+    file1 = open("DNA.txt",'rb')
 
-print(stat(2))
+    data = pickle.load(file1)
+    
+    file1.close()
+    
+    dna,labels = data
+    
+    dna = np.array(dna,dtype="float32")
+    
+    labels = np.array(labels,dtype="float32")
+    
+    split = KFold(10,shuffle=True)
+
+    X_train,Y_train = [],[]
+    X_test,Y_test = [],[]
+
+
+    for train,test in split.split(dna,labels):
+        
+        X_train.append(dna[train])
+        Y_train.append(labels[train])
+        X_test.append(dna[test])
+        Y_test.append(labels[test])
+        
+
+    vals = []
+    for ind in range(1):
+        
+        vals.append(VAE([X_train[ind],Y_train[ind]],[X_test[ind],Y_test[ind]]))
+    
+
+    return np.mean(vals,axis=0),np.std(vals,axis=0)
+
+
+print(stat(30))
 
 end_time = time.monotonic()
 print(timedelta(seconds=end_time - start_time))
