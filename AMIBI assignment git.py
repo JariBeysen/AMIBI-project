@@ -621,7 +621,7 @@ def single():
     return np.mean(vals,axis=0),np.std(vals,axis=0)
 
 
-print(stat(100))
+print(stat(10))
 
 end_time = time.monotonic()
 print(timedelta(seconds=end_time - start_time))
