@@ -505,7 +505,7 @@ def VAE(data,test_data):
     
     test_ac_n = solv.eval(tf_test_normal_dnas,tf_test_normal_labels)
     
-    gen_labels,gen_dnas = solv.generate_dna([0,1],tf_tumor_dnas, 1000)
+    gen_labels,gen_dnas = solv.generate_dna([0,1],tf_tumor_dnas, 100)
     
     tf_gen_labels = tf.data.Dataset.from_tensor_slices(gen_labels).batch(1)
     
@@ -515,7 +515,7 @@ def VAE(data,test_data):
     print("tumor gen accuracy = " +str(test_ac_gt))
     
  
-    gen_labels,gen_dnas = solv.generate_dna([1,0],tf_normal_dnas, 1000)
+    gen_labels,gen_dnas = solv.generate_dna([1,0],tf_normal_dnas, 100)
     
     tf_gen_labels = tf.data.Dataset.from_tensor_slices(gen_labels).batch(1)
     
@@ -620,7 +620,7 @@ def single():
     return np.mean(vals,axis=0),np.std(vals,axis=0)
 
 
-print(stat(30))
+print(stat(100))
 
 end_time = time.monotonic()
 print(timedelta(seconds=end_time - start_time))
