@@ -45,6 +45,7 @@ class V_autoencoder(tf.keras.Model):
         self.latent_sigma = tf.keras.layers.Dense(lat_size)
         activation = self.act_func
         scaler=0.005
+
         
         self.e_hidden = [tf.keras.layers.Dense(int(self.in_out_dim*scaler-(self.in_out_dim*scaler-self.lat_size)/(self.num_hidden_layers+1)*(k+1)),
                              activation=activation,
@@ -495,7 +496,7 @@ def VAE(data,test_data):
     
     solv = VAE_Solver(model,[tf_dna,tf_labels])
     
-    solv.train(optimizer, lr,30,10)
+    solv.train(optimizer, lr,20,30)
         
     
     test_ac = solv.eval(tf_test_dnas,tf_test_labels)
